@@ -65,57 +65,36 @@ export const POST = async (req: NextRequest) => {
     const analyzeResult = resultData?.analyzeResult;
     if (!analyzeResult) return NextResponse.json({ error: "No analyzeResult" });
 
-    const tables = analyzeResult.tables ?? [];
-    const mainTable = tables[1];
+    const selectionMarks = analyzeResult.selectionMarks ?? []; // チェックボックスや選択マークのデータ
+    const boundingBoxes: any[] = []; // すべての長方形領域をリストに追加
 
     /* ==========================================================
-       行数の不一致問題（最大行数の自動推定）
+       selectionMarks のすべての長方形領域をリストに追加
        ========================================================== */
-    const validRows = mainTable.cells
-      .filter((c: any) => c.columnIndex === 3 && c.content?.trim().length > 0)
-      .map((c: any) => c.rowIndex);
-
-    const maxRow = Math.max(...validRows);
-
-    // 結果を確認するために、OCR結果の内容をそのまま出力
-    const checkResults: any[] = [];
-    const checkboxes: any[] = []; // チェックボックス関連のリストを作成
-
-    if (mainTable) {
-      // すべてのセルに対して、内容をそのままExcelに書き出す
-      mainTable.cells.forEach((cell: any) => {
-        checkResults.push({
-          rowIndex: cell.rowIndex,
-          columnIndex: cell.columnIndex,
-          content: cell.content,
-        });
-
-        // チェックボックスの情報をリストに追加
-        if (cell.columnIndex === 10 && cell.content?.toLowerCase().includes("✓")) { // 「チェック結果」列を想定
-          checkboxes.push({
-            rowIndex: cell.rowIndex,
-            content: cell.content,
-          });
-        }
+    selectionMarks.forEach((mark: any) => {
+      boundingBoxes.push({
+        rowIndex: mark.rowIndex,
+        columnIndex: mark.columnIndex,
+        boundingBox: mark.boundingBox, // 選択マークの領域情報（長方形）
       });
-    }
+    });
 
-    // チェックボックスリストをログに出力
-    console.log("チェックボックスリスト:", checkboxes);
+    // 長方形領域リストをログに出力
+    console.log("選択マークの長方形領域リスト:", boundingBoxes);
 
     /* ==========================================================
-       Excel 作成
+       結果をExcelに書き込む
        ========================================================== */
     const workbook = new ExcelJS.Workbook();
     const sheet = workbook.addWorksheet("OCR結果");
 
     // 1行目にヘッダーを書き込む
-    sheet.addRow(["No.", "部屋番号", "氏名", "メニュー/料金", "合計料金", "施術開始時間の希望", "施術実施 有無", "追加メニュー 可否", "オーダーメイド", "備考", "チェック結果"]);
+    sheet.addRow(["No.", "部屋番号", "氏名", "メニュー/料金", "合計料金", "施術開始時間の希望", "施術実施 有無", "追加メニュー 可否", "オーダーメイド", "備考", "選択マークの領域"]);
 
-    // OCR結果のすべての行と列を出力
-    checkResults.forEach((r) => {
-      const row = sheet.getRow(r.rowIndex + 2); // Excelの行番号は1から始まるため、1行目はヘッダー
-      row.getCell(r.columnIndex + 1).value = r.content; // セルの内容を設定
+    // Excelに選択マークの情報を追加
+    boundingBoxes.forEach((box, index) => {
+      const row = sheet.getRow(index + 2);
+      row.getCell(11).value = `Row: ${box.rowIndex}, Column: ${box.columnIndex}, BoundingBox: ${JSON.stringify(box.boundingBox)}`;
     });
 
     const excelBuffer = await workbook.xlsx.writeBuffer();
