@@ -127,7 +127,7 @@ export default function Home() {
 
   return (
     <div style={{ padding: 20 }}>
-      <h1>📄 Azure OCR デバッグ & Excel 出力ビューア</h1>
+      <h1>📄 Azure OCR </h1>
 
       <button onClick={triggerFileSelect} style={{ marginBottom: 10 }}>
         📂 画像 / PDF を選択
