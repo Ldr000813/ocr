@@ -62,7 +62,7 @@ async function detectCheckMark(imageBuffer: Buffer) {
   if (slashScore + backslashScore < 5) return "empty";
   if (slashScore > backslashScore * 1.5) return "slash"; // ／
   if (backslashScore > slashScore * 1.5) return "checked"; // ✓
-  
+
   // 両方向が弱ければチェックありとして判定
   if (backslashScore > slashScore * 1.2) return "checked";
 
@@ -146,8 +146,9 @@ export const POST = async (req: NextRequest) => {
     const checkResults: any[] = [];
 
     if (mainTable) {
+      // 変更: 施術実施有無の列に対して判定を行う
       const cells = mainTable.cells.filter(
-        (c: any) => c.columnIndex === 14 && c.rowIndex > 0 && c.rowIndex <= maxRow
+        (c: any) => c.columnIndex === 6 && c.rowIndex > 0 && c.rowIndex <= maxRow // 施術実施有無列
       );
 
       for (const cell of cells) {
@@ -208,7 +209,7 @@ export const POST = async (req: NextRequest) => {
     // チェック欄の判定結果を追加
     checkResults.forEach((r) => {
       const row = sheet.getRow(r.rowIndex + 2); // Excelの行番号は1から始まるため、2行目からデータ
-      row.getCell(11).value = r.checkType; // チェック結果列に判定結果を追加
+      row.getCell(7).value = r.checkType; // 施術実施有無列に判定結果を追加
     });
 
     const excelBuffer = await workbook.xlsx.writeBuffer();
@@ -216,8 +217,7 @@ export const POST = async (req: NextRequest) => {
     return new NextResponse(excelBuffer, {
       status: 200,
       headers: {
-        "Content-Type":
-          "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        "Content-Type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         "Content-Disposition": `attachment; filename="ocr_result.xlsx"`,
       },
     });
