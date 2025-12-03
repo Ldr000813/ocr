@@ -8,8 +8,9 @@ import ExcelJS from 'exceljs';
 async function detectCheckMark(imageBuffer: Buffer) {
   const TARGET_SIZE = 64;
 
+  // 1. グレースケール → 2値化 → 小さめにリサイズ
   const { data, info } = await sharp(imageBuffer)
-    .resize(TARGET_SIZE, TARGET_SIZE, { fit: "fill" })
+    .resize(TARGET_SIZE, TARGET_SIZE, { fit: 'fill' })
     .greyscale()
     .threshold(180)
     .raw()
@@ -18,6 +19,7 @@ async function detectCheckMark(imageBuffer: Buffer) {
   const width = info.width;
   const height = info.height;
 
+  // 2. 黒ピクセルマップと黒ピクセル総数
   const isBlack = new Uint8Array(width * height);
   let blackCount = 0;
 
@@ -31,7 +33,7 @@ async function detectCheckMark(imageBuffer: Buffer) {
   const blackRatio = blackCount / (width * height);
   if (blackRatio < 0.01) return "empty";
 
-  // 中心80%の領域のみ走査
+  // 3. 中心80%の領域のみ走査
   const mx = Math.floor(width * 0.1);
   const my = Math.floor(height * 0.1);
 
@@ -62,8 +64,11 @@ async function detectCheckMark(imageBuffer: Buffer) {
   if (slashScore > backslashScore * 1.5) return "slash";     // ／
   if (backslashScore > slashScore * 1.5) return "checked";   // ✓
 
-  // あいまい → ✓扱い
-  return "checked";
+  // 片線が強ければ ✓、両方そこそこなら ✓
+  if (backslashScore > slashScore * 1.2) return "checked";
+
+  // 両方向が弱い → empty
+  return "empty";
 }
 
 /* ==========================================================
@@ -132,13 +137,19 @@ export const POST = async (req: NextRequest) => {
     const mainTable = tables[1];
 
     /* ==========================================================
-       チェック欄抽出（columnIndex = 14）
+       行数の不一致問題（最大行数の自動推定）
        ========================================================== */
+    const validRows = mainTable.cells
+      .filter((c: any) => c.columnIndex === 3 && c.content?.trim().length > 0)
+      .map((c: any) => c.rowIndex);
+
+    const maxRow = Math.max(...validRows);
+
     const checkResults: any[] = [];
 
     if (mainTable) {
       const cells = mainTable.cells.filter(
-        (c: any) => c.columnIndex === 14 && c.rowIndex > 0
+        (c: any) => c.columnIndex === 14 && c.rowIndex > 0 && c.rowIndex <= maxRow
       );
 
       for (const cell of cells) {
