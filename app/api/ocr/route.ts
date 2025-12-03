@@ -3,9 +3,9 @@ import sharp from 'sharp';
 import ExcelJS from 'exceljs';
 
 /* ==========================================================
-   ✓／判定ロジック（方向＋密度で判定する改良版）
+   メニュー選択の判定ロジック
    ========================================================== */
-async function detectCheckMark(imageBuffer: Buffer) {
+async function detectMenuSelection(imageBuffer: Buffer) {
   const TARGET_SIZE = 64;
 
   const { data, info } = await sharp(imageBuffer)
@@ -30,43 +30,21 @@ async function detectCheckMark(imageBuffer: Buffer) {
   }
 
   const blackRatio = blackCount / (width * height);
+
+  // 判定基準: 黒ピクセルが少ないと空白と見なす
   if (blackRatio < 0.01) return "empty";
 
-  // 斜め方向のスコアリング
-  const mx = Math.floor(width * 0.1);
-  const my = Math.floor(height * 0.1);
-
-  let slashScore = 0;      // ／方向
-  let backslashScore = 0;  // ＼方向（✓の主成分）
-
-  for (let y = my; y < height - my - 1; y++) {
-    for (let x = mx; x < width - mx - 1; x++) {
-      const idx = y * width + x;
-      if (!isBlack[idx]) continue;
-
-      // ／方向
-      if (y > my) {
-        const idx2 = (y - 1) * width + (x + 1);
-        if (isBlack[idx2]) slashScore++;
-      }
-
-      // ＼方向
-      if (y < height - my - 1) {
-        const idx3 = (y + 1) * width + (x + 1);
-        if (isBlack[idx3]) backslashScore++;
-      }
-    }
+  // 〇の判定
+  if (blackRatio > 0.1 && blackRatio < 0.3) {
+    return "selected";  // 〇が選択されている
   }
 
-  // 判定基準を強化
-  if (slashScore + backslashScore < 5) return "empty";
-  if (slashScore > backslashScore * 1.5) return "slash"; // ／
-  if (backslashScore > slashScore * 1.5) return "checked"; // ✓
+  // 〇の上に×がある場合
+  if (blackRatio > 0.3 && blackRatio < 0.5) {
+    return "cancel";  // 〇に×が重なっている
+  }
 
-  // 両方向が弱ければチェックありとして判定
-  if (backslashScore > slashScore * 1.2) return "checked";
-
-  return "empty";
+  return "empty"; // その他の場合（選択されていない、または判別不能）
 }
 
 /* ==========================================================
@@ -146,9 +124,9 @@ export const POST = async (req: NextRequest) => {
     const checkResults: any[] = [];
 
     if (mainTable) {
-      // 変更: 施術実施有無の列に対して判定を行う
+      // 変更: 五つのメニュー列に対して判定を行う
       const cells = mainTable.cells.filter(
-        (c: any) => c.columnIndex === 6 && c.rowIndex > 0 && c.rowIndex <= maxRow // 施術実施有無列
+        (c: any) => c.columnIndex >= 4 && c.columnIndex <= 8 && c.rowIndex > 0 && c.rowIndex <= maxRow
       );
 
       for (const cell of cells) {
@@ -182,10 +160,11 @@ export const POST = async (req: NextRequest) => {
           })
           .toBuffer();
 
-        const checkType = await detectCheckMark(cropped);
+        const checkType = await detectMenuSelection(cropped);
 
         checkResults.push({
           rowIndex: cell.rowIndex,
+          columnIndex: cell.columnIndex,
           checkType,
         });
       }
@@ -209,7 +188,8 @@ export const POST = async (req: NextRequest) => {
     // チェック欄の判定結果を追加
     checkResults.forEach((r) => {
       const row = sheet.getRow(r.rowIndex + 2); // Excelの行番号は1から始まるため、2行目からデータ
-      row.getCell(7).value = r.checkType; // 施術実施有無列に判定結果を追加
+      if (r.checkType === "empty") return; // 空白の場合は何も表示しない
+      row.getCell(r.columnIndex + 1).value = r.checkType; // メニュー列に判定結果を追加
     });
 
     const excelBuffer = await workbook.xlsx.writeBuffer();
