@@ -10,7 +10,11 @@ export default function Home() {
   const [headerJson, setHeaderJson] = useState<string | null>(null);
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
 
-  // ファイル選択
+  // ファイル選択処理
+  const triggerFileSelect = () => {
+    document.getElementById('fileInput')?.click();
+  };
+
   const handleImageSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
@@ -22,11 +26,7 @@ export default function Home() {
     }
   };
 
-  const triggerFileSelect = () => {
-    document.getElementById('fileInput')?.click();
-  };
-
-  // OCR 実行
+  // OCR 処理
   const processImage = async () => {
     if (!selectedFile) {
       setStatusMessage("画像を選択してください");
@@ -51,10 +51,10 @@ export default function Home() {
         return;
       }
 
-      // ---- 全テーブル JSON を表示 ----
+      // ---- 全テーブル JSON を画面に表示 ----
       setTablesJson(JSON.stringify(data.tables, null, 2));
 
-      // ---- ヘッダー行（rowIndex = 0）だけ抽出して表示 ----
+      // ---- rowIndex = 0（ヘッダー行）のセルだけ抽出 ----
       if (data.tables && data.tables.length > 0) {
         const headerCells = data.tables[0].cells.filter(
           (cell: any) => cell.rowIndex === 0
@@ -63,7 +63,7 @@ export default function Home() {
         setHeaderJson(JSON.stringify(headerCells, null, 2));
       }
 
-      setStatusMessage("OCR が完了しました（ヘッダー行を表示）");
+      setStatusMessage("OCRが完了しました（ヘッダー行を表示）");
 
     } catch (err: any) {
       setStatusMessage("エラー: " + err.message);
@@ -75,65 +75,66 @@ export default function Home() {
   return (
     <div style={{ padding: 20 }}>
       <h1>📄 Azure OCR デバッグビューア</h1>
-      <p>ヘッダー情報（rowIndex = 0）をブラウザで表示できます</p>
+      <p>ヘッダー情報（rowIndex = 0）をブラウザで確認できます</p>
 
-      {/* --- 画像選択ボタン --- */}
+      {/* ファイル選択 */}
       <button onClick={triggerFileSelect} style={{ marginBottom: 10 }}>
         📂 画像 / PDF を選択
       </button>
 
       <input
-        type="file"
         id="fileInput"
+        type="file"
         accept="image/*,application/pdf"
         style={{ display: 'none' }}
         onChange={handleImageSelect}
       />
 
-      {/* --- プレビュー --- */}
+      {/* プレビュー */}
       {imagePreview && (
         <div style={{ marginTop: 20 }}>
-          <img src={imagePreview} style={{ maxWidth: '100%', borderRadius: 6 }} />
+          <img
+            src={imagePreview}
+            style={{ maxWidth: '100%', borderRadius: 8 }}
+          />
         </div>
       )}
 
-      {/* --- OCRボタン --- */}
-      <div>
-        <button
-          onClick={processImage}
-          disabled={!selectedFile || loading}
-          style={{ marginTop: 20 }}
-        >
-          🔍 OCR 実行
-        </button>
-      </div>
+      {/* OCR ボタン */}
+      <button
+        onClick={processImage}
+        disabled={!selectedFile || loading}
+        style={{ marginTop: 20 }}
+      >
+        🔍 OCR 実行
+      </button>
 
-      {/* --- ステータス --- */}
-      {loading && <p style={{ marginTop: 10 }}>処理中です…</p>}
+      {/* ステータスメッセージ */}
       {statusMessage && <p style={{ marginTop: 10 }}>{statusMessage}</p>}
+      {loading && <p style={{ marginTop: 10 }}>処理中です…</p>}
 
-      {/* --- ヘッダー行 JSON --- */}
+      {/* ---- ヘッダー行の JSON ---- */}
       {headerJson && (
         <div
           style={{
-            marginTop: 20,
+            marginTop: 30,
             padding: 10,
-            background: '#f1f1f1',
+            background: '#eef7ff',
             borderRadius: 6,
           }}
         >
           <h3>🟦 ヘッダー行（rowIndex = 0）</h3>
-          <pre>{headerJson}</pre>
+          <pre style={{ whiteSpace: 'pre-wrap' }}>{headerJson}</pre>
         </div>
       )}
 
-      {/* --- 全 tables JSON --- */}
+      {/* ---- 全テーブル JSON ---- */}
       {tablesJson && (
         <div
           style={{
-            marginTop: 20,
+            marginTop: 30,
             padding: 10,
-            background: '#fafafa',
+            background: '#f8f8f8',
             borderRadius: 6,
           }}
         >
