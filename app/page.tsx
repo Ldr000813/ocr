@@ -162,7 +162,7 @@ export default function Home() {
             borderRadius: 6,
           }}
         >
-          <h3>📘 全テーブル JSON（デバッグ用）</h3>
+          <h3>📘 全テーブル JSON（デバッグ）</h3>
           <pre style={{ whiteSpace: "pre-wrap" }}>{tablesJson}</pre>
         </div>
       )}
