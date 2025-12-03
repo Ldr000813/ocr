@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import sharp from 'sharp';
+import * as XLSX from 'xlsx';
 
 export const POST = async (req: NextRequest) => {
   try {
@@ -28,8 +29,9 @@ export const POST = async (req: NextRequest) => {
       return NextResponse.json({ error: 'Unsupported file type' }, { status: 400 });
     }
 
-    // ---- Azure Layout API ----
-    const analyzeUrl = `${AZURE_ENDPOINT}/formrecognizer/documentModels/prebuilt-layout:analyze?api-version=2023-07-31`;
+    // ⭐ ---- Azure Document Model（構造化データ）----
+    const analyzeUrl =
+      `${AZURE_ENDPOINT}/formrecognizer/documentModels/prebuilt-document:analyze?api-version=2023-07-31`;
 
     const analyzeResponse = await fetch(analyzeUrl, {
       method: 'POST',
@@ -57,9 +59,7 @@ export const POST = async (req: NextRequest) => {
       await new Promise((r) => setTimeout(r, 1000));
 
       const pollResponse = await fetch(operationLocation, {
-        headers: {
-          'Ocp-Apim-Subscription-Key': AZURE_API_KEY,
-        },
+        headers: { 'Ocp-Apim-Subscription-Key': AZURE_API_KEY },
       });
 
       const json = await pollResponse.json();
@@ -79,9 +79,36 @@ export const POST = async (req: NextRequest) => {
       return NextResponse.json({ error: 'No analyzeResult returned' }, { status: 500 });
     }
 
-    // ---- フロントへ返却（フルデータ） ----
+    // ⭐ ---- tables を Excel に変換 ----
+    const tables = analyzeResult.tables || [];
+
+    const wb = XLSX.utils.book_new();
+
+    tables.forEach((table: any, idx: number) => {
+      const rows: any[] = [];
+      const maxCols = table.columnCount;
+
+      for (let r = 0; r < table.rowCount; r++) {
+        rows[r] = Array(maxCols).fill('');
+      }
+
+      table.cells.forEach((cell: any) => {
+        rows[cell.rowIndex][cell.columnIndex] = cell.content;
+      });
+
+      const ws = XLSX.utils.aoa_to_sheet(rows);
+      XLSX.utils.book_append_sheet(wb, ws, `Table_${idx + 1}`);
+    });
+
+    // Excel を Base64 に変換
+    const excelBase64 = XLSX.write(wb, {
+      type: 'base64',
+      bookType: 'xlsx',
+    });
+
     return NextResponse.json({
-      result: analyzeResult,   // ← これをフロントでそのまま表示できる
+      excel: excelBase64,     // ← Excelファイル Base64
+      tables: tables,         // ← デバッグ用
     });
 
   } catch (error: any) {

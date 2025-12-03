@@ -6,13 +6,10 @@ export default function Home() {
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [imagePreview, setImagePreview] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
-  const [result, setResult] = useState<string | null>(null);
   const [statusMessage, setStatusMessage] = useState<{ message: string; isError: boolean } | null>(null);
-
-  const imageRef = useRef<HTMLImageElement | null>(null);
+  const [debugJson, setDebugJson] = useState<string | null>(null);
 
   const triggerFileSelect = () => document.getElementById('fileInput')?.click();
-  const triggerCamera = () => document.getElementById('cameraInput')?.click();
 
   const handleImageSelect = (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
@@ -34,25 +31,31 @@ export default function Home() {
     if (!selectedFile) return showStatus('画像を選択してください', true);
 
     setLoading(true);
-    setResult(null);
+    setDebugJson(null);
 
     try {
       const formData = new FormData();
       formData.append('file', selectedFile);
 
       const res = await fetch('/api/ocr', { method: 'POST', body: formData });
-
       const text = await res.text();
       const data = JSON.parse(text);
 
-      if (data.error) {
-        return showStatus(data.error, true);
-      }
+      if (data.error) return showStatus(data.error, true);
 
-      // ⭐ 修正済み：サーバーが返す result を表示
-      setResult(JSON.stringify(data.result, null, 2));
+      setDebugJson(JSON.stringify(data.tables, null, 2));
 
-      showStatus('OCR処理が完了しました', false);
+      // ⭐ Excel Base64 → Blob → ダウンロード
+      const excelBlob = b64toBlob(data.excel, 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+
+      const url = URL.createObjectURL(excelBlob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'ocr_output.xlsx';
+      a.click();
+      URL.revokeObjectURL(url);
+
+      showStatus('Excelをダウンロードしました', false);
 
     } catch (err: any) {
       console.error(err);
@@ -62,86 +65,60 @@ export default function Home() {
     }
   };
 
+  // Base64 → Blob
+  const b64toBlob = (b64Data: string, contentType = '', sliceSize = 512) => {
+    const byteCharacters = atob(b64Data);
+    const byteArrays = [];
+
+    for (let offset = 0; offset < byteCharacters.length; offset += sliceSize) {
+      const slice = byteCharacters.slice(offset, offset + sliceSize);
+
+      const byteNumbers = new Array(slice.length);
+      for (let i = 0; i < slice.length; i++) {
+        byteNumbers[i] = slice.charCodeAt(i);
+      }
+
+      const byteArray = new Uint8Array(byteNumbers);
+      byteArrays.push(byteArray);
+    }
+
+    return new Blob(byteArrays, { type: contentType });
+  };
+
   return (
-    <div className="container" style={{ padding: 20 }}>
-      <div className="header" style={{ textAlign: 'center', marginBottom: 20 }}>
-        <h1>📄 OCR Document Scanner</h1>
-        <p>Azure AI Document Intelligence Layout の文字起こし結果を表示</p>
-      </div>
+    <div style={{ padding: 20 }}>
+      <h1>📄 OCR → Excel 変換</h1>
 
-      {/* --- ファイル選択 UI --- */}
-      <div style={{ textAlign: 'center', marginBottom: 20 }}>
-        <button className="btn btn-primary" onClick={triggerCamera} style={{ marginRight: 10 }}>
-          📷 カメラで撮影
-        </button>
-        <button className="btn btn-primary" onClick={triggerFileSelect}>
-          🖼️ 既存の画像を選択
-        </button>
+      <button onClick={triggerFileSelect} style={{ marginBottom: 10 }}>
+        画像 / PDF を選択
+      </button>
 
-        <input
-          type="file"
-          id="cameraInput"
-          accept="image/*"
-          capture="environment"
-          onChange={handleImageSelect}
-          style={{ display: 'none' }}
-        />
+      <input
+        type="file"
+        id="fileInput"
+        accept="image/*,application/pdf"
+        onChange={handleImageSelect}
+        style={{ display: 'none' }}
+      />
 
-        <input
-          type="file"
-          id="fileInput"
-          accept="image/*"
-          onChange={handleImageSelect}
-          style={{ display: 'none' }}
-        />
-      </div>
+      {imagePreview && <img src={imagePreview} style={{ maxWidth: '100%', marginTop: 10 }} />}
 
-      {/* --- プレビュー表示 --- */}
-      {imagePreview && (
-        <div style={{ textAlign: 'center' }}>
-          <img
-            ref={imageRef}
-            src={imagePreview}
-            alt="Image Preview"
-            style={{ maxWidth: '100%', borderRadius: 10 }}
-          />
-        </div>
-      )}
-
-      {/* --- OCRボタン --- */}
-      <div style={{ textAlign: 'center', marginTop: 20 }}>
-        <button className="btn btn-primary" onClick={processImage} disabled={!selectedFile || loading}>
-          🔍 OCR処理を開始
+      <div>
+        <button onClick={processImage} disabled={!selectedFile || loading} style={{ marginTop: 20 }}>
+          🔍 OCR → Excelに変換
         </button>
       </div>
 
-      {/* --- ローディング --- */}
-      {loading && (
-        <div style={{ textAlign: 'center', padding: 20 }}>
-          <p>処理中です...</p>
-        </div>
+      {loading && <p>処理中です...</p>}
+
+      {debugJson && (
+        <pre style={{ marginTop: 20, background: '#f0f0f0', padding: 10 }}>
+          {debugJson}
+        </pre>
       )}
 
-      {/* --- OCR結果 --- */}
-      {result && (
-        <div style={{ marginTop: 20, padding: 20, background: '#f8f9fa', borderRadius: 10 }}>
-          <h3>📋 OCR結果</h3>
-          <pre>{result}</pre>
-        </div>
-      )}
-
-      {/* --- ステータス通知 --- */}
       {statusMessage && (
-        <div
-          style={{
-            marginTop: 20,
-            padding: 10,
-            background: statusMessage.isError ? '#f8d7da' : '#d4edda',
-            borderRadius: 8,
-            textAlign: 'center',
-            color: statusMessage.isError ? '#721c24' : '#155724',
-          }}
-        >
+        <div style={{ marginTop: 10, color: statusMessage.isError ? 'red' : 'green' }}>
           {statusMessage.message}
         </div>
       )}
