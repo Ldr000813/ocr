@@ -1,4 +1,4 @@
-'use client';
+'use client'; 
 
 import { useState } from 'react';
 
@@ -9,6 +9,7 @@ export default function Home() {
   const [tablesJson, setTablesJson] = useState<string | null>(null);
   const [headerJson, setHeaderJson] = useState<string | null>(null);
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
+  const [checkboxResults, setCheckboxResults] = useState<any[]>([]); // チェックボックス結果を格納するためのstate
 
   const triggerFileSelect = () => {
     document.getElementById("fileInput")?.click();
@@ -38,6 +39,7 @@ export default function Home() {
     setStatusMessage(null);
     setTablesJson(null);
     setHeaderJson(null);
+    setCheckboxResults([]); // チェックボックス結果を初期化
 
     try {
       const formData = new FormData();
@@ -85,6 +87,21 @@ export default function Home() {
         }
 
         setTablesJson(JSON.stringify(data.tables, null, 2));
+
+        // チェック結果を抽出する処理
+        const checkboxes: any[] = [];
+        data.tables.forEach((table: any) => {
+          table.cells.forEach((cell: any) => {
+            if (cell.columnIndex === 10 && cell.content?.toLowerCase().includes("✓")) { // 「チェック結果」列を想定
+              checkboxes.push({
+                rowIndex: cell.rowIndex,
+                content: cell.content,
+              });
+            }
+          });
+        });
+
+        setCheckboxResults(checkboxes); // チェックボックス結果を保存
 
         if (data.tables?.length > 0) {
           const headerCells = data.tables[0].cells.filter(
@@ -164,6 +181,26 @@ export default function Home() {
         >
           <h3>📘 全テーブル JSON（デバッグ）</h3>
           <pre style={{ whiteSpace: "pre-wrap" }}>{tablesJson}</pre>
+        </div>
+      )}
+
+      {checkboxResults.length > 0 && (
+        <div
+          style={{
+            marginTop: 30,
+            padding: 10,
+            background: "#fff5e6",
+            borderRadius: 6,
+          }}
+        >
+          <h3>✅ チェック結果</h3>
+          <ul>
+            {checkboxResults.map((result, index) => (
+              <li key={index}>
+                Row {result.rowIndex}: {result.content}
+              </li>
+            ))}
+          </ul>
         </div>
       )}
     </div>
