@@ -8,7 +8,6 @@ import ExcelJS from 'exceljs';
 async function detectCheckMark(imageBuffer: Buffer) {
   const TARGET_SIZE = 64;
 
-  // 1. グレースケール → 2値化 → 小さめにリサイズ
   const { data, info } = await sharp(imageBuffer)
     .resize(TARGET_SIZE, TARGET_SIZE, { fit: 'fill' })
     .greyscale()
@@ -19,7 +18,7 @@ async function detectCheckMark(imageBuffer: Buffer) {
   const width = info.width;
   const height = info.height;
 
-  // 2. 黒ピクセルマップと黒ピクセル総数
+  // 黒ピクセルのカウント
   const isBlack = new Uint8Array(width * height);
   let blackCount = 0;
 
@@ -33,7 +32,7 @@ async function detectCheckMark(imageBuffer: Buffer) {
   const blackRatio = blackCount / (width * height);
   if (blackRatio < 0.01) return "empty";
 
-  // 3. 中心80%の領域のみ走査
+  // 斜め方向のスコアリング
   const mx = Math.floor(width * 0.1);
   const my = Math.floor(height * 0.1);
 
@@ -45,13 +44,13 @@ async function detectCheckMark(imageBuffer: Buffer) {
       const idx = y * width + x;
       if (!isBlack[idx]) continue;
 
-      // ／
+      // ／方向
       if (y > my) {
         const idx2 = (y - 1) * width + (x + 1);
         if (isBlack[idx2]) slashScore++;
       }
 
-      // ＼
+      // ＼方向
       if (y < height - my - 1) {
         const idx3 = (y + 1) * width + (x + 1);
         if (isBlack[idx3]) backslashScore++;
@@ -59,15 +58,14 @@ async function detectCheckMark(imageBuffer: Buffer) {
     }
   }
 
+  // 判定基準を強化
   if (slashScore + backslashScore < 5) return "empty";
-
-  if (slashScore > backslashScore * 1.5) return "slash";     // ／
-  if (backslashScore > slashScore * 1.5) return "checked";   // ✓
-
-  // 片線が強ければ ✓、両方そこそこなら ✓
+  if (slashScore > backslashScore * 1.5) return "slash"; // ／
+  if (backslashScore > slashScore * 1.5) return "checked"; // ✓
+  
+  // 両方向が弱ければチェックありとして判定
   if (backslashScore > slashScore * 1.2) return "checked";
 
-  // 両方向が弱い → empty
   return "empty";
 }
 
