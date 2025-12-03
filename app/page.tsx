@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef } from 'react';
 
 export default function Home() {
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
@@ -49,8 +49,9 @@ export default function Home() {
         return showStatus(data.error, true);
       }
 
-      // ⭐ OCR結果を反映（text のみ）
-      setResult(data.text);
+      // ⭐ 修正済み：サーバーが返す result を表示
+      setResult(JSON.stringify(data.result, null, 2));
+
       showStatus('OCR処理が完了しました', false);
 
     } catch (err: any) {
