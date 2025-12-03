@@ -124,12 +124,13 @@ export const POST = async (req: NextRequest) => {
       row.getCell(cell.columnIndex + 1).value = cell.content; // セルの内容を設定
     });
 
-    // チェック欄の判定結果を追加
-    checkResults.forEach((r) => {
-      const row = sheet.getRow(r.rowIndex + 2); // Excelの行番号は1から始まるため、2行目からデータ
-      if (r.checkType === "empty") return; // 〇がない場合は何も表示しない
-      row.getCell(r.columnIndex + 1).value = r.checkType; // メニュー列に判定結果を追加
-    });
+    // チェック欄の判定結果を追加（空のチェック結果はExcelに出力しない）
+    checkResults
+      .filter(r => r.checkType !== "empty") // 'empty' を除外
+      .forEach((r) => {
+        const row = sheet.getRow(r.rowIndex + 2); // Excelの行番号は1から始まるため、2行目からデータ
+        row.getCell(r.columnIndex + 1).value = r.checkType; // メニュー列に判定結果を追加
+      });
 
     const excelBuffer = await workbook.xlsx.writeBuffer();
 
