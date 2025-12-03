@@ -1,37 +1,42 @@
 'use client';
 
-import { useState, useRef } from 'react';
+import { useState } from 'react';
 
 export default function Home() {
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [imagePreview, setImagePreview] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
-  const [statusMessage, setStatusMessage] = useState<{ message: string; isError: boolean } | null>(null);
-  const [debugJson, setDebugJson] = useState<string | null>(null);
+  const [tablesJson, setTablesJson] = useState<string | null>(null);
+  const [headerJson, setHeaderJson] = useState<string | null>(null);
+  const [statusMessage, setStatusMessage] = useState<string | null>(null);
 
-  const triggerFileSelect = () => document.getElementById('fileInput')?.click();
-
-  const handleImageSelect = (event: React.ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
+  // ファイル選択
+  const handleImageSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
     if (file) {
       setSelectedFile(file);
 
       const reader = new FileReader();
-      reader.onload = (e) => setImagePreview(e.target?.result as string);
+      reader.onload = (ev) => setImagePreview(ev.target?.result as string);
       reader.readAsDataURL(file);
     }
   };
 
-  const showStatus = (message: string, isError = false) => {
-    setStatusMessage({ message, isError });
-    setTimeout(() => setStatusMessage(null), 5000);
+  const triggerFileSelect = () => {
+    document.getElementById('fileInput')?.click();
   };
 
+  // OCR 実行
   const processImage = async () => {
-    if (!selectedFile) return showStatus('画像を選択してください', true);
+    if (!selectedFile) {
+      setStatusMessage("画像を選択してください");
+      return;
+    }
 
     setLoading(true);
-    setDebugJson(null);
+    setStatusMessage(null);
+    setTablesJson(null);
+    setHeaderJson(null);
 
     try {
       const formData = new FormData();
@@ -41,85 +46,99 @@ export default function Home() {
       const text = await res.text();
       const data = JSON.parse(text);
 
-      if (data.error) return showStatus(data.error, true);
+      if (data.error) {
+        setStatusMessage("エラー: " + data.error);
+        return;
+      }
 
-      setDebugJson(JSON.stringify(data.tables, null, 2));
+      // ---- 全テーブル JSON を表示 ----
+      setTablesJson(JSON.stringify(data.tables, null, 2));
 
-      // ⭐ Excel Base64 → Blob → ダウンロード
-      const excelBlob = b64toBlob(data.excel, 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+      // ---- ヘッダー行（rowIndex = 0）だけ抽出して表示 ----
+      if (data.tables && data.tables.length > 0) {
+        const headerCells = data.tables[0].cells.filter(
+          (cell: any) => cell.rowIndex === 0
+        );
 
-      const url = URL.createObjectURL(excelBlob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = 'ocr_output.xlsx';
-      a.click();
-      URL.revokeObjectURL(url);
+        setHeaderJson(JSON.stringify(headerCells, null, 2));
+      }
 
-      showStatus('Excelをダウンロードしました', false);
+      setStatusMessage("OCR が完了しました（ヘッダー行を表示）");
 
     } catch (err: any) {
-      console.error(err);
-      showStatus(err.message, true);
+      setStatusMessage("エラー: " + err.message);
     } finally {
       setLoading(false);
     }
   };
 
-  // Base64 → Blob
-  const b64toBlob = (b64Data: string, contentType = '', sliceSize = 512) => {
-    const byteCharacters = atob(b64Data);
-    const byteArrays = [];
-
-    for (let offset = 0; offset < byteCharacters.length; offset += sliceSize) {
-      const slice = byteCharacters.slice(offset, offset + sliceSize);
-
-      const byteNumbers = new Array(slice.length);
-      for (let i = 0; i < slice.length; i++) {
-        byteNumbers[i] = slice.charCodeAt(i);
-      }
-
-      const byteArray = new Uint8Array(byteNumbers);
-      byteArrays.push(byteArray);
-    }
-
-    return new Blob(byteArrays, { type: contentType });
-  };
-
   return (
     <div style={{ padding: 20 }}>
-      <h1>📄 OCR → Excel 変換</h1>
+      <h1>📄 Azure OCR デバッグビューア</h1>
+      <p>ヘッダー情報（rowIndex = 0）をブラウザで表示できます</p>
 
+      {/* --- 画像選択ボタン --- */}
       <button onClick={triggerFileSelect} style={{ marginBottom: 10 }}>
-        画像 / PDF を選択
+        📂 画像 / PDF を選択
       </button>
 
       <input
         type="file"
         id="fileInput"
         accept="image/*,application/pdf"
-        onChange={handleImageSelect}
         style={{ display: 'none' }}
+        onChange={handleImageSelect}
       />
 
-      {imagePreview && <img src={imagePreview} style={{ maxWidth: '100%', marginTop: 10 }} />}
+      {/* --- プレビュー --- */}
+      {imagePreview && (
+        <div style={{ marginTop: 20 }}>
+          <img src={imagePreview} style={{ maxWidth: '100%', borderRadius: 6 }} />
+        </div>
+      )}
 
+      {/* --- OCRボタン --- */}
       <div>
-        <button onClick={processImage} disabled={!selectedFile || loading} style={{ marginTop: 20 }}>
-          🔍 OCR → Excelに変換
+        <button
+          onClick={processImage}
+          disabled={!selectedFile || loading}
+          style={{ marginTop: 20 }}
+        >
+          🔍 OCR 実行
         </button>
       </div>
 
-      {loading && <p>処理中です...</p>}
+      {/* --- ステータス --- */}
+      {loading && <p style={{ marginTop: 10 }}>処理中です…</p>}
+      {statusMessage && <p style={{ marginTop: 10 }}>{statusMessage}</p>}
 
-      {debugJson && (
-        <pre style={{ marginTop: 20, background: '#f0f0f0', padding: 10 }}>
-          {debugJson}
-        </pre>
+      {/* --- ヘッダー行 JSON --- */}
+      {headerJson && (
+        <div
+          style={{
+            marginTop: 20,
+            padding: 10,
+            background: '#f1f1f1',
+            borderRadius: 6,
+          }}
+        >
+          <h3>🟦 ヘッダー行（rowIndex = 0）</h3>
+          <pre>{headerJson}</pre>
+        </div>
       )}
 
-      {statusMessage && (
-        <div style={{ marginTop: 10, color: statusMessage.isError ? 'red' : 'green' }}>
-          {statusMessage.message}
+      {/* --- 全 tables JSON --- */}
+      {tablesJson && (
+        <div
+          style={{
+            marginTop: 20,
+            padding: 10,
+            background: '#fafafa',
+            borderRadius: 6,
+          }}
+        >
+          <h3>📘 全テーブル JSON（デバッグ用）</h3>
+          <pre style={{ whiteSpace: 'pre-wrap' }}>{tablesJson}</pre>
         </div>
       )}
     </div>
