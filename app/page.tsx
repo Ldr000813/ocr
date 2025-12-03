@@ -1,6 +1,6 @@
 'use client'; 
 
-import { useState } from 'react';
+import { useState, useRef, useEffect } from 'react';
 
 export default function Home() {
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
@@ -8,6 +8,10 @@ export default function Home() {
   const [loading, setLoading] = useState(false);
   const [boundingBoxes, setBoundingBoxes] = useState<any[]>([]); // 長方形領域データを格納するstate
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
+  
+  // 画像表示とキャンバスで長方形を描画するためのref
+  const imageRef = useRef<HTMLImageElement | null>(null);
+  const canvasRef = useRef<HTMLCanvasElement | null>(null);
 
   const triggerFileSelect = () => {
     document.getElementById("fileInput")?.click();
@@ -64,6 +68,29 @@ export default function Home() {
     }
   };
 
+  // 画像と長方形領域を描画する処理
+  useEffect(() => {
+    if (imageRef.current && canvasRef.current && boundingBoxes.length > 0) {
+      const canvas = canvasRef.current;
+      const context = canvas.getContext("2d");
+      if (context) {
+        // キャンバスのサイズを画像に合わせる
+        canvas.width = imageRef.current.width;
+        canvas.height = imageRef.current.height;
+
+        // 長方形領域を描画
+        boundingBoxes.forEach((box) => {
+          context.strokeStyle = "red"; // 赤色で描画
+          context.lineWidth = 2;
+
+          // boundingBoxは[左上x, 左上y, 幅, 高さ]の形式であることを想定
+          const [x, y, width, height] = box.boundingBox;
+          context.strokeRect(x, y, width, height); // 長方形を描画
+        });
+      }
+    }
+  }, [boundingBoxes]);
+
   return (
     <div style={{ padding: 20 }}>
       <h1>📄 Azure OCR デバッグ & 長方形領域表示</h1>
@@ -81,8 +108,23 @@ export default function Home() {
       />
 
       {imagePreview && (
-        <div style={{ marginTop: 20 }}>
-          <img src={imagePreview} style={{ maxWidth: "100%", borderRadius: 8 }} />
+        <div style={{ marginTop: 20, position: "relative" }}>
+          <img
+            ref={imageRef}
+            src={imagePreview}
+            alt="Preview"
+            style={{ maxWidth: "100%", borderRadius: 8 }}
+          />
+          {/* キャンバスを画像の上に重ねる */}
+          <canvas
+            ref={canvasRef}
+            style={{
+              position: "absolute",
+              top: 0,
+              left: 0,
+              pointerEvents: "none", // 画像の上でキャンバスがクリックされないようにする
+            }}
+          />
         </div>
       )}
 
@@ -107,7 +149,9 @@ export default function Home() {
           }}
         >
           <h3>📦 選択マークの長方形領域</h3>
-          <pre style={{ whiteSpace: "pre-wrap" }}>{JSON.stringify(boundingBoxes, null, 2)}</pre>
+          <pre style={{ whiteSpace: "pre-wrap" }}>
+            {JSON.stringify(boundingBoxes, null, 2)}
+          </pre>
         </div>
       )}
     </div>
