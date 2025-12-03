@@ -80,13 +80,16 @@ export const POST = async (req: NextRequest) => {
     const checkResults: any[] = [];
 
     if (mainTable) {
-      // すべてのセルに対して、内容をそのままExcelに書き出す
+      // すべてのセルに対して、contentとconfidenceを取得
       mainTable.cells.forEach((cell: any) => {
-        checkResults.push({
-          rowIndex: cell.rowIndex,
-          columnIndex: cell.columnIndex,
-          content: cell.content,
-        });
+        if (cell.confidence >= 0.9) {  // confidenceが90%以上の場合のみ
+          checkResults.push({
+            rowIndex: cell.rowIndex,
+            columnIndex: cell.columnIndex,
+            content: cell.content,
+            confidence: cell.confidence, // confidence値も追加
+          });
+        }
       });
     }
 
@@ -97,12 +100,13 @@ export const POST = async (req: NextRequest) => {
     const sheet = workbook.addWorksheet("OCR結果");
 
     // 1行目にヘッダーを書き込む
-    sheet.addRow(["No.", "部屋番号", "氏名", "メニュー/料金", "合計料金", "施術開始時間の希望", "施術実施 有無", "追加メニュー 可否", "オーダーメイド", "備考", "チェック結果"]);
+    sheet.addRow(["No.", "部屋番号", "氏名", "メニュー/料金", "合計料金", "施術開始時間の希望", "施術実施 有無", "追加メニュー 可否", "オーダーメイド", "備考", "チェック結果", "Confidence"]);
 
-    // OCR結果のすべての行と列を出力
+    // OCR結果のすべての行と列を出力（confidenceが90%以上の場合のみ）
     checkResults.forEach((r) => {
       const row = sheet.getRow(r.rowIndex + 2); // Excelの行番号は1から始まるため、1行目はヘッダー
       row.getCell(r.columnIndex + 1).value = r.content; // セルの内容を設定
+      row.getCell(12).value = r.confidence; // Confidence値も表示
     });
 
     const excelBuffer = await workbook.xlsx.writeBuffer();
