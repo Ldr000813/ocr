@@ -47,6 +47,7 @@ export const POST = async (req: NextRequest) => {
 
     let resultData: any = null;
 
+    // ポーリング処理（最大30回まで試行）
     for (let i = 0; i < 30; i++) {
       await new Promise((r) => setTimeout(r, 1000));
 
@@ -99,15 +100,8 @@ export const POST = async (req: NextRequest) => {
       });
     }
 
-    /* ==========================================================
-       チェックボックスのリストをまとめる
-       ========================================================== */
-    const checkboxList = checkboxes.map((checkbox) => ({
-      rowIndex: checkbox.rowIndex,
-      content: checkbox.content,
-    }));
-
-    console.log("チェックボックスリスト:", checkboxList);
+    // チェックボックスリストをログに出力
+    console.log("チェックボックスリスト:", checkboxes);
 
     /* ==========================================================
        Excel 作成
