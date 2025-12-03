@@ -3,48 +3,15 @@ import sharp from 'sharp';
 import ExcelJS from 'exceljs';
 
 /* ==========================================================
-   メニュー選択の判定ロジック
+   メニュー選択の判定ロジック（AzureのOCR結果を使用）
    ========================================================== */
-async function detectMenuSelection(imageBuffer: Buffer) {
-  const TARGET_SIZE = 64;
-
-  const { data, info } = await sharp(imageBuffer)
-    .resize(TARGET_SIZE, TARGET_SIZE, { fit: 'fill' })
-    .greyscale()
-    .threshold(180)
-    .raw()
-    .toBuffer({ resolveWithObject: true });
-
-  const width = info.width;
-  const height = info.height;
-
-  // 黒ピクセルのカウント
-  const isBlack = new Uint8Array(width * height);
-  let blackCount = 0;
-
-  for (let i = 0; i < data.length; i++) {
-    if (data[i] === 0) {
-      isBlack[i] = 1;
-      blackCount++;
-    }
+async function detectMenuSelection(cellContent: string) {
+  // AzureのOCR結果に基づいて、〇があれば 'selected' を返し、それ以外は何も返さない
+  if (cellContent.includes('〇')) {
+    return "selected";  // 〇が含まれている場合
   }
 
-  const blackRatio = blackCount / (width * height);
-
-  // 判定基準: 黒ピクセルが少ないと空白と見なす
-  if (blackRatio < 0.01) return "empty";
-
-  // 〇の判定
-  if (blackRatio > 0.1 && blackRatio < 0.3) {
-    return "selected";  // 〇が選択されている
-  }
-
-  // 〇の上に×がある場合
-  if (blackRatio > 0.3 && blackRatio < 0.5) {
-    return "cancel";  // 〇に×が重なっている
-  }
-
-  return "empty"; // その他の場合（選択されていない、または判別不能）
+  return "empty"; // 〇が含まれていない場合は何も表示しない
 }
 
 /* ==========================================================
@@ -130,37 +97,9 @@ export const POST = async (req: NextRequest) => {
       );
 
       for (const cell of cells) {
-        const poly = cell.boundingRegions?.[0]?.polygon;
-        if (!poly) continue;
+        const cellContent = cell.content?.trim(); // セルの内容（例えば「〇」）を取得
 
-        const xs = [poly[0], poly[2], poly[4], poly[6]];
-        const ys = [poly[1], poly[3], poly[5], poly[7]];
-        const left = Math.min(...xs);
-        const right = Math.max(...xs);
-        const top = Math.min(...ys);
-        const bottom = Math.max(...ys);
-
-        const w = right - left;
-        const h = bottom - top;
-
-        const marginX = Math.floor(w * 0.05);
-        const marginY = Math.floor(h * 0.05);
-
-        const cropLeft = left + marginX;
-        const cropTop = top + marginY;
-        const cropWidth = Math.max(1, w - marginX * 2);
-        const cropHeight = Math.max(1, h - marginY * 2);
-
-        const cropped = await sharp(originalBuffer)
-          .extract({
-            left: cropLeft,
-            top: cropTop,
-            width: cropWidth,
-            height: cropHeight,
-          })
-          .toBuffer();
-
-        const checkType = await detectMenuSelection(cropped);
+        const checkType = await detectMenuSelection(cellContent);
 
         checkResults.push({
           rowIndex: cell.rowIndex,
@@ -188,7 +127,7 @@ export const POST = async (req: NextRequest) => {
     // チェック欄の判定結果を追加
     checkResults.forEach((r) => {
       const row = sheet.getRow(r.rowIndex + 2); // Excelの行番号は1から始まるため、2行目からデータ
-      if (r.checkType === "empty") return; // 空白の場合は何も表示しない
+      if (r.checkType === "empty") return; // 〇がない場合は何も表示しない
       row.getCell(r.columnIndex + 1).value = r.checkType; // メニュー列に判定結果を追加
     });
 
