@@ -48,16 +48,17 @@ export default function Home() {
         body: formData
       });
 
-      // 返却形式で挙動を変える（Excel or JSON）
+      // レスポンスのContent-Typeをチェック
       const contentType = res.headers.get("Content-Type") || "";
 
       /* ==========================================================
          Excel が返ってきた場合（Content-Type が xlsx）
          ========================================================== */
-      if (contentType.includes(
-        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-      )) {
+      if (contentType.includes("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")) {
         const blob = await res.blob();
+
+        // ダウンロード開始フィードバック
+        setStatusMessage("Excel のダウンロードが開始されました...");
 
         const url = window.URL.createObjectURL(blob);
         const a = document.createElement("a");
@@ -74,23 +75,29 @@ export default function Home() {
          JSON が返ってきた場合（デバッグ表示用）
          ========================================================== */
       const text = await res.text();
-      const data = JSON.parse(text);
 
-      if (data.error) {
-        setStatusMessage("エラー: " + data.error);
-        return;
+      try {
+        const data = JSON.parse(text);
+
+        if (data.error) {
+          setStatusMessage("エラー: " + data.error);
+          return;
+        }
+
+        setTablesJson(JSON.stringify(data.tables, null, 2));
+
+        if (data.tables?.length > 0) {
+          const headerCells = data.tables[0].cells.filter(
+            (c: any) => c.rowIndex === 0
+          );
+          setHeaderJson(JSON.stringify(headerCells, null, 2));
+        }
+
+        setStatusMessage("OCR（デバッグ JSON）を表示しました");
+
+      } catch (err) {
+        setStatusMessage("エラー: 無効なJSONが返されました");
       }
-
-      setTablesJson(JSON.stringify(data.tables, null, 2));
-
-      if (data.tables?.length > 0) {
-        const headerCells = data.tables[0].cells.filter(
-          (c: any) => c.rowIndex === 0
-        );
-        setHeaderJson(JSON.stringify(headerCells, null, 2));
-      }
-
-      setStatusMessage("OCR（デバッグ JSON）を表示しました");
 
     } catch (err: any) {
       setStatusMessage("エラー: " + err.message);

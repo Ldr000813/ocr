@@ -194,12 +194,21 @@ export const POST = async (req: NextRequest) => {
        Excel 作成
        ========================================================== */
     const workbook = new ExcelJS.Workbook();
-    const sheet = workbook.addWorksheet("チェック結果");
+    const sheet = workbook.addWorksheet("OCR結果");
 
-    sheet.addRow(["行番号", "判定（✓/／/empty）"]);
+    // 1行目にヘッダーを書き込む
+    sheet.addRow(["No.", "部屋番号", "氏名", "メニュー/料金", "合計料金", "施術開始時間の希望", "施術実施 有無", "追加メニュー 可否", "オーダーメイド", "備考", "チェック結果"]);
 
+    // OCR結果のすべての行と列を出力
+    mainTable.cells.forEach((cell: any) => {
+      const row = sheet.getRow(cell.rowIndex + 2); // Excelの行番号は1から始まるため、1行目はヘッダー
+      row.getCell(cell.columnIndex + 1).value = cell.content; // セルの内容を設定
+    });
+
+    // チェック欄の判定結果を追加
     checkResults.forEach((r) => {
-      sheet.addRow([r.rowIndex, r.checkType]);
+      const row = sheet.getRow(r.rowIndex + 2); // Excelの行番号は1から始まるため、2行目からデータ
+      row.getCell(11).value = r.checkType; // チェック結果列に判定結果を追加
     });
 
     const excelBuffer = await workbook.xlsx.writeBuffer();
@@ -209,7 +218,7 @@ export const POST = async (req: NextRequest) => {
       headers: {
         "Content-Type":
           "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        "Content-Disposition": `attachment; filename="check_results.xlsx"`,
+        "Content-Disposition": `attachment; filename="ocr_result.xlsx"`,
       },
     });
   } catch (err: any) {
