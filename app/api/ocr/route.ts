@@ -3,18 +3,6 @@ import sharp from 'sharp';
 import ExcelJS from 'exceljs';
 
 /* ==========================================================
-   メニュー選択の判定ロジック（AzureのOCR結果を使用）
-   ========================================================== */
-async function detectMenuSelection(cellContent: string) {
-  // AzureのOCR結果に基づいて、〇があれば 'selected' を返し、それ以外は何も返さない
-  if (cellContent.includes('〇')) {
-    return "selected";  // 〇が含まれている場合
-  }
-
-  return "empty"; // 〇が含まれていない場合は何も表示しない
-}
-
-/* ==========================================================
    メイン OCR（Azure）
    ========================================================== */
 export const POST = async (req: NextRequest) => {
@@ -88,25 +76,18 @@ export const POST = async (req: NextRequest) => {
 
     const maxRow = Math.max(...validRows);
 
+    // 結果を確認するために、OCR結果の内容をそのまま出力
     const checkResults: any[] = [];
 
     if (mainTable) {
-      // 変更: 五つのメニュー列に対して判定を行う
-      const cells = mainTable.cells.filter(
-        (c: any) => c.columnIndex >= 4 && c.columnIndex <= 8 && c.rowIndex > 0 && c.rowIndex <= maxRow
-      );
-
-      for (const cell of cells) {
-        const cellContent = cell.content?.trim(); // セルの内容（例えば「〇」）を取得
-
-        const checkType = await detectMenuSelection(cellContent);
-
+      // すべてのセルに対して、内容をそのままExcelに書き出す
+      mainTable.cells.forEach((cell: any) => {
         checkResults.push({
           rowIndex: cell.rowIndex,
           columnIndex: cell.columnIndex,
-          checkType,
+          content: cell.content,
         });
-      }
+      });
     }
 
     /* ==========================================================
@@ -119,18 +100,10 @@ export const POST = async (req: NextRequest) => {
     sheet.addRow(["No.", "部屋番号", "氏名", "メニュー/料金", "合計料金", "施術開始時間の希望", "施術実施 有無", "追加メニュー 可否", "オーダーメイド", "備考", "チェック結果"]);
 
     // OCR結果のすべての行と列を出力
-    mainTable.cells.forEach((cell: any) => {
-      const row = sheet.getRow(cell.rowIndex + 2); // Excelの行番号は1から始まるため、1行目はヘッダー
-      row.getCell(cell.columnIndex + 1).value = cell.content; // セルの内容を設定
+    checkResults.forEach((r) => {
+      const row = sheet.getRow(r.rowIndex + 2); // Excelの行番号は1から始まるため、1行目はヘッダー
+      row.getCell(r.columnIndex + 1).value = r.content; // セルの内容を設定
     });
-
-    // チェック欄の判定結果を追加（空のチェック結果はExcelに出力しない）
-    checkResults
-      .filter(r => r.checkType !== "empty") // 'empty' を除外
-      .forEach((r) => {
-        const row = sheet.getRow(r.rowIndex + 2); // Excelの行番号は1から始まるため、2行目からデータ
-        row.getCell(r.columnIndex + 1).value = r.checkType; // メニュー列に判定結果を追加
-      });
 
     const excelBuffer = await workbook.xlsx.writeBuffer();
 
