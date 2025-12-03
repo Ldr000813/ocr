@@ -99,7 +99,11 @@ export const POST = async (req: NextRequest) => {
 
     const excelBuffer = await workbook.xlsx.writeBuffer();
 
-    return new NextResponse(excelBuffer, {
+    // レスポンスとしてExcelファイルのデータを返すだけでなく、boundingBoxesのデータもJSONとして返す
+    return NextResponse.json({
+      boundingBoxes,
+      excelBuffer,
+    }, {
       status: 200,
       headers: {
         "Content-Type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",

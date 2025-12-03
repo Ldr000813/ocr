@@ -6,10 +6,8 @@ export default function Home() {
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [imagePreview, setImagePreview] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
-  const [tablesJson, setTablesJson] = useState<string | null>(null);
-  const [headerJson, setHeaderJson] = useState<string | null>(null);
+  const [boundingBoxes, setBoundingBoxes] = useState<any[]>([]); // 長方形領域データを格納するstate
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
-  const [checkboxResults, setCheckboxResults] = useState<any[]>([]); // チェックボックス結果を格納するためのstate
 
   const triggerFileSelect = () => {
     document.getElementById("fileInput")?.click();
@@ -37,9 +35,7 @@ export default function Home() {
 
     setLoading(true);
     setStatusMessage(null);
-    setTablesJson(null);
-    setHeaderJson(null);
-    setCheckboxResults([]); // チェックボックス結果を初期化
+    setBoundingBoxes([]); // 長方形領域を初期化
 
     try {
       const formData = new FormData();
@@ -50,76 +46,19 @@ export default function Home() {
         body: formData
       });
 
-      // レスポンスのContent-Typeをチェック
-      const contentType = res.headers.get("Content-Type") || "";
+      const data = await res.json();
 
-      /* ==========================================================
-         Excel が返ってきた場合（Content-Type が xlsx）
-         ========================================================== */
-      if (contentType.includes("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")) {
-        const blob = await res.blob();
-
-        // ダウンロード開始フィードバック
-        setStatusMessage("Excel のダウンロードが開始されました...");
-
-        const url = window.URL.createObjectURL(blob);
-        const a = document.createElement("a");
-        a.href = url;
-        a.download = "ocr_result.xlsx";
-        a.click();
-        window.URL.revokeObjectURL(url);
-
-        setStatusMessage("Excel をダウンロードしました");
+      if (data.error) {
+        setStatusMessage("エラー: " + data.error);
         return;
       }
 
-      /* ==========================================================
-         JSON が返ってきた場合（デバッグ表示用）
-         ========================================================== */
-      const text = await res.text();
+      setBoundingBoxes(data.boundingBoxes); // バックエンドから受け取った長方形領域データをセット
 
-      try {
-        const data = JSON.parse(text);  // JSONとしてパース
-
-        if (data.error) {
-          setStatusMessage("エラー: " + data.error);
-          return;
-        }
-
-        setTablesJson(JSON.stringify(data.tables, null, 2));
-
-        // チェック結果を抽出する処理
-        const checkboxes: any[] = [];
-        data.tables.forEach((table: any) => {
-          table.cells.forEach((cell: any) => {
-            if (cell.columnIndex === 10 && cell.content?.toLowerCase().includes("✓")) { // 「チェック結果」列を想定
-              checkboxes.push({
-                rowIndex: cell.rowIndex,
-                content: cell.content,
-              });
-            }
-          });
-        });
-
-        setCheckboxResults(checkboxes); // チェックボックス結果を保存
-
-        if (data.tables?.length > 0) {
-          const headerCells = data.tables[0].cells.filter(
-            (c: any) => c.rowIndex === 0
-          );
-          setHeaderJson(JSON.stringify(headerCells, null, 2));
-        }
-
-        setStatusMessage("OCR（デバッグ JSON）を表示しました");
-
-      } catch (err) {
-        setStatusMessage("エラー: 無効なJSONが返されました");
-        console.error("JSON Parsing Error:", err);
-      }
+      setStatusMessage("OCR処理が完了しました。");
 
     } catch (err: any) {
       setStatusMessage("エラー: " + err.message);
-      console.error("Request Error:", err);
     } finally {
       setLoading(false);
     }
@@ -127,7 +66,7 @@ export default function Home() {
 
   return (
     <div style={{ padding: 20 }}>
-      <h1>📄 Azure OCR </h1>
+      <h1>📄 Azure OCR デバッグ & 長方形領域表示</h1>
 
       <button onClick={triggerFileSelect} style={{ marginBottom: 10 }}>
         📂 画像 / PDF を選択
@@ -158,21 +97,7 @@ export default function Home() {
       {statusMessage && <p style={{ marginTop: 10 }}>{statusMessage}</p>}
       {loading && <p style={{ marginTop: 10 }}>処理中です…</p>}
 
-      {headerJson && (
-        <div
-          style={{
-            marginTop: 30,
-            padding: 10,
-            background: "#eef7ff",
-            borderRadius: 6,
-          }}
-        >
-          <h3>🟦 ヘッダー行（rowIndex = 0）</h3>
-          <pre style={{ whiteSpace: "pre-wrap" }}>{headerJson}</pre>
-        </div>
-      )}
-
-      {tablesJson && (
+      {boundingBoxes.length > 0 && (
         <div
           style={{
             marginTop: 30,
@@ -181,28 +106,8 @@ export default function Home() {
             borderRadius: 6,
           }}
         >
-          <h3>📘 全テーブル JSON（デバッグ）</h3>
-          <pre style={{ whiteSpace: "pre-wrap" }}>{tablesJson}</pre>
-        </div>
-      )}
-
-      {checkboxResults.length > 0 && (
-        <div
-          style={{
-            marginTop: 30,
-            padding: 10,
-            background: "#fff5e6",
-            borderRadius: 6,
-          }}
-        >
-          <h3>✅ チェック結果</h3>
-          <ul>
-            {checkboxResults.map((result, index) => (
-              <li key={index}>
-                Row {result.rowIndex}: {result.content}
-              </li>
-            ))}
-          </ul>
+          <h3>📦 選択マークの長方形領域</h3>
+          <pre style={{ whiteSpace: "pre-wrap" }}>{JSON.stringify(boundingBoxes, null, 2)}</pre>
         </div>
       )}
     </div>
