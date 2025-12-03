@@ -79,7 +79,7 @@ export default function Home() {
       const text = await res.text();
 
       try {
-        const data = JSON.parse(text);
+        const data = JSON.parse(text);  // JSONとしてパース
 
         if (data.error) {
           setStatusMessage("エラー: " + data.error);
@@ -114,10 +114,12 @@ export default function Home() {
 
       } catch (err) {
         setStatusMessage("エラー: 無効なJSONが返されました");
+        console.error("JSON Parsing Error:", err);
       }
 
     } catch (err: any) {
       setStatusMessage("エラー: " + err.message);
+      console.error("Request Error:", err);
     } finally {
       setLoading(false);
     }
