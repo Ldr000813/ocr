@@ -65,17 +65,39 @@ export const POST = async (req: NextRequest) => {
     const analyzeResult = resultData?.analyzeResult;
     if (!analyzeResult) return NextResponse.json({ error: "No analyzeResult" });
 
-    const selectionMarks = analyzeResult.selectionMarks ?? []; // チェックボックスや選択マークのデータ
+    // ログ出力：Azureからのレスポンス構造確認
+    console.log("Azure Analyze Result Keys:", Object.keys(analyzeResult));
+    if (analyzeResult.pages) {
+      console.log("Number of pages:", analyzeResult.pages.length);
+      analyzeResult.pages.forEach((p: any, i: number) => {
+        console.log(`Page ${i} selectionMarks count:`, p.selectionMarks?.length);
+      });
+    }
+
+    let selectionMarks = analyzeResult.selectionMarks;
+
+    // トップレベルにない場合、pagesの中から探す
+    if (!selectionMarks || selectionMarks.length === 0) {
+      if (analyzeResult.pages) {
+        selectionMarks = analyzeResult.pages.flatMap((p: any) => p.selectionMarks || []);
+      }
+    }
+
+    selectionMarks = selectionMarks ?? []; // 最終的に配列にする
     const boundingBoxes: any[] = []; // すべての長方形領域をリストに追加
 
     /* ==========================================================
        selectionMarks のすべての長方形領域をリストに追加
        ========================================================== */
     selectionMarks.forEach((mark: any) => {
+      // state: "selected" | "unselected"
+      // チェックされているものだけ抽出したい場合はここでフィルタリングできますが、
+      // 今回は「チェックボックス領域」すべてを描画するため全件取得します。
       boundingBoxes.push({
-        rowIndex: mark.rowIndex,
+        rowIndex: mark.rowIndex, // ※ Layoutモデルの場合 rowIndex/columnIndex は存在しない場合があります
         columnIndex: mark.columnIndex,
         boundingBox: mark.boundingBox, // 選択マークの領域情報（長方形）
+        state: mark.state // 参考：selected or unselected
       });
     });
 
