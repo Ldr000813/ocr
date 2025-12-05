@@ -96,7 +96,7 @@ export const POST = async (req: NextRequest) => {
       boundingBoxes.push({
         rowIndex: mark.rowIndex, // ※ Layoutモデルの場合 rowIndex/columnIndex は存在しない場合があります
         columnIndex: mark.columnIndex,
-        boundingBox: mark.boundingBox, // 選択マークの領域情報（長方形）
+        boundingBox: mark.polygon || mark.boundingBox, // 選択マークの領域情報（polygonが一般的）
         state: mark.state // 参考：selected or unselected
       });
     });
