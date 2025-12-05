@@ -1,4 +1,4 @@
-'use client'; 
+'use client';
 
 import { useState, useRef, useEffect } from 'react';
 
@@ -8,10 +8,7 @@ export default function Home() {
   const [loading, setLoading] = useState(false);
   const [boundingBoxes, setBoundingBoxes] = useState<any[]>([]); // 長方形領域データを格納するstate
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
-  
-  // 画像表示とキャンバスで長方形を描画するためのref
-  const imageRef = useRef<HTMLImageElement | null>(null);
-  const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const canvasRef = useRef<HTMLCanvasElement>(null);
 
   const triggerFileSelect = () => {
     document.getElementById("fileInput")?.click();
@@ -21,12 +18,57 @@ export default function Home() {
     const file = e.target.files?.[0];
     if (file) {
       setSelectedFile(file);
-
+      setBoundingBoxes([]); // Reset bounding boxes on new image
       const reader = new FileReader();
-      reader.onload = (ev) => setImagePreview(ev.target?.result as string);
+      reader.onload = (ev) => {
+        const src = ev.target?.result as string;
+        setImagePreview(src);
+      };
       reader.readAsDataURL(file);
     }
   };
+
+  // Draw image and boxes on canvas whenever imagePreview or boundingBoxes change
+  useEffect(() => {
+    if (!imagePreview || !canvasRef.current) return;
+
+    const canvas = canvasRef.current;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
+
+    const img = new Image();
+    img.src = imagePreview;
+    img.onload = () => {
+      // Set canvas dimensions to match image
+      canvas.width = img.width;
+      canvas.height = img.height;
+
+      // Draw original image
+      ctx.drawImage(img, 0, 0);
+
+      // Draw bounding boxes if they exist
+      if (boundingBoxes.length > 0) {
+        ctx.lineWidth = 3;
+        ctx.strokeStyle = "red";
+        ctx.fillStyle = "rgba(255, 0, 0, 0.2)";
+
+        boundingBoxes.forEach((item) => {
+          const box = item.boundingBox; // Array of 8 numbers [x1, y1, x2, y2, x3, y3, x4, y4]
+          if (box && box.length === 8) {
+            ctx.beginPath();
+            ctx.moveTo(box[0], box[1]);
+            ctx.lineTo(box[2], box[3]);
+            ctx.lineTo(box[4], box[5]);
+            ctx.lineTo(box[6], box[7]);
+            ctx.closePath();
+            ctx.stroke();
+            // Optional: fill the box slightly
+            // ctx.fill();
+          }
+        });
+      }
+    };
+  }, [imagePreview, boundingBoxes]);
 
   /* ==========================================================
      OCR 実行 → Excel or JSON を自動判別して処理
@@ -68,28 +110,13 @@ export default function Home() {
     }
   };
 
-  // 画像と長方形領域を描画する処理
-  useEffect(() => {
-    if (imageRef.current && canvasRef.current && boundingBoxes.length > 0) {
-      const canvas = canvasRef.current;
-      const context = canvas.getContext("2d");
-      if (context) {
-        // キャンバスのサイズを画像に合わせる
-        canvas.width = imageRef.current.width;
-        canvas.height = imageRef.current.height;
-
-        // 長方形領域を描画
-        boundingBoxes.forEach((box) => {
-          context.strokeStyle = "red"; // 赤色で描画
-          context.lineWidth = 2;
-
-          // boundingBoxは[左上x, 左上y, 幅, 高さ]の形式であることを想定
-          const [x, y, width, height] = box.boundingBox;
-          context.strokeRect(x, y, width, height); // 長方形を描画
-        });
-      }
-    }
-  }, [boundingBoxes]);
+  const downloadImage = () => {
+    if (!canvasRef.current) return;
+    const link = document.createElement('a');
+    link.download = 'checked_image.png';
+    link.href = canvasRef.current.toDataURL('image/png');
+    link.click();
+  };
 
   return (
     <div style={{ padding: 20 }}>
@@ -107,34 +134,25 @@ export default function Home() {
         onChange={handleImageSelect}
       />
 
-      {imagePreview && (
-        <div style={{ marginTop: 20, position: "relative" }}>
-          <img
-            ref={imageRef}
-            src={imagePreview}
-            alt="Preview"
-            style={{ maxWidth: "100%", borderRadius: 8 }}
-          />
-          {/* キャンバスを画像の上に重ねる */}
-          <canvas
-            ref={canvasRef}
-            style={{
-              position: "absolute",
-              top: 0,
-              left: 0,
-              pointerEvents: "none", // 画像の上でキャンバスがクリックされないようにする
-            }}
-          />
-        </div>
-      )}
+      {/* Canvas for drawing image and boxes */}
+      <div style={{ marginTop: 20, overflow: 'auto' }}>
+        <canvas ref={canvasRef} style={{ maxWidth: "100%", height: "auto", borderRadius: 8, display: imagePreview ? 'block' : 'none' }} />
+      </div>
 
-      <button
-        onClick={processImage}
-        disabled={!selectedFile || loading}
-        style={{ marginTop: 20 }}
-      >
-        🔍 OCR 実行
-      </button>
+      <div style={{ marginTop: 20, display: 'flex', gap: '10px' }}>
+        <button
+          onClick={processImage}
+          disabled={!selectedFile || loading}
+        >
+          🔍 OCR 実行
+        </button>
+
+        {boundingBoxes.length > 0 && (
+          <button onClick={downloadImage}>
+            ⬇️ 画像をダウンロード
+          </button>
+        )}
+      </div>
 
       {statusMessage && <p style={{ marginTop: 10 }}>{statusMessage}</p>}
       {loading && <p style={{ marginTop: 10 }}>処理中です…</p>}
@@ -149,9 +167,7 @@ export default function Home() {
           }}
         >
           <h3>📦 選択マークの長方形領域</h3>
-          <pre style={{ whiteSpace: "pre-wrap" }}>
-            {JSON.stringify(boundingBoxes, null, 2)}
-          </pre>
+          <pre style={{ whiteSpace: "pre-wrap" }}>{JSON.stringify(boundingBoxes, null, 2)}</pre>
         </div>
       )}
     </div>
