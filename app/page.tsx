@@ -27,6 +27,7 @@ type DocInfo = {
   day: string;
   dayOfWeek: string;
 };
+
 // --- Constants ---
 const TARGET_COLUMNS = [
   "氏名",
@@ -34,26 +35,16 @@ const TARGET_COLUMNS = [
   "カラー",
   "パーマ",
   "ヘアーマニキュア",
+  "ベットカット",
   "顔そり",
   "シャンプー",
   "施術実施",
 ];
 
-// --- Constants (環境変数から取得) ---
-// --- Constants (NEXT_PUBLIC_ を付けて参照) ---
 const CUSTOM_VISION_API_KEY = process.env.NEXT_PUBLIC_CUSTOM_VISION_KEY || "";
 const CUSTOM_VISION_ENDPOINT = process.env.NEXT_PUBLIC_CUSTOM_VISION_ENDPOINT || "";
 const PROJECT_ID = process.env.NEXT_PUBLIC_CUSTOM_VISION_PROJECT_ID || "";
 const ITERATION_ID = process.env.NEXT_PUBLIC_CUSTOM_VISION_ITERATION_ID || "";
-
-// --- Logic Variables (Outside to persist as per original) ---
-const rowMap: Record<number, Record<number, string>> = {};
-const targetColumnIndices: number[] = [];
-const columnHeaders: string[] = [];
-let nameRowIndex = 0;
-let nameColumnIndex: number | undefined;
-let tempColumnName: string | undefined = undefined;
-let tempColumnIndex: number | undefined = undefined;
 
 export default function Home() {
   const [file, setFile] = useState<File | null>(null);
@@ -63,8 +54,79 @@ export default function Home() {
   const [selectedRows, setSelectedRows] = useState<Set<number>>(new Set());
   const [markdown, setMarkdown] = useState<string>("");
   const [menuCounts, setMenuCounts] = useState<Record<string, number>>({});
-  // 追加: 施設情報・日付のステート
   const [docInfo, setDocInfo] = useState<DocInfo | null>(null);
+
+  const [targetColumnIndices, setTargetColumnIndices] = useState<number[]>([]);
+  const [columnHeaders, setColumnHeaders] = useState<string[]>([]);
+
+  // --- メニュー列の動的追加 ---
+  const addNewMenuColumn = () => {
+    const menuName = prompt("追加するメニュー名を入力してください");
+    if (!menuName) return;
+
+    setColumnHeaders((prev) => {
+      const next = [...prev];
+      next.splice(next.length - 1, 0, menuName);
+      return next;
+    });
+
+    setRows((prev) =>
+      prev.map((row) => {
+        const isHeader = row.results.every((r) => r === null);
+        const nextResults = [...row.results];
+        const nextColumns = [...row.columns];
+        const insertIdx = nextResults.length - 1;
+        nextResults.splice(insertIdx, 0, isHeader ? null : "×");
+        nextColumns.splice(insertIdx, 0, isHeader ? menuName : "");
+        return { ...row, results: nextResults, columns: nextColumns };
+      })
+    );
+  };
+
+  // --- メニュー列の削除 ---
+  const removeMenuColumn = (colIndex: number) => {
+    const menuName = columnHeaders[colIndex];
+    if (menuName === "氏名" || menuName === "施術実施") {
+      alert("この列は削除できません");
+      return;
+    }
+
+    if (!confirm(`メニュー「${menuName}」を削除しますか？`)) return;
+
+    setColumnHeaders((prev) => prev.filter((_, i) => i !== colIndex));
+    setRows((prev) =>
+      prev.map((row) => ({
+        ...row,
+        results: row.results.filter((_, i) => i !== colIndex),
+        columns: row.columns.filter((_, i) => i !== colIndex),
+      }))
+    );
+  };
+
+  // --- 【新規実装】人の追加 ---
+  const addNewPersonRow = () => {
+    const personName = prompt("追加する氏名を入力してください");
+    if (!personName) return;
+
+    setRows((prev) => {
+      const maxIdx = prev.length > 0 ? Math.max(...prev.map(r => r.rowIndex)) : 0;
+      const newRow: DisplayRow = {
+        rowIndex: maxIdx + 1,
+        columns: columnHeaders.map((h, i) => i === 0 ? personName : ""),
+        results: columnHeaders.map((h, i) => i === 0 ? null : "×")
+      };
+      return [...prev, newRow];
+    });
+  };
+
+  // --- 【新規実装】人の削除 ---
+  const removePersonRow = (rowIndex: number) => {
+    const row = rows.find(r => r.rowIndex === rowIndex);
+    if (!row) return;
+    if (!confirm(`「${row.columns[0]}」さんの行を削除しますか？`)) return;
+
+    setRows((prev) => prev.filter(r => r.rowIndex !== rowIndex));
+  };
 
   const onSubmit = async () => {
     if (!file || !imageUrl) return;
@@ -74,15 +136,11 @@ export default function Home() {
     formData.append("file", file);
 
     try {
-      // 1. Azure Analyze APIの呼び出し
       const res = await fetch("/api/analyze", { method: "POST", body: formData });
       const data = await res.json();
-
       const extractedMarkdown = data.analyzeResult.content;
-      console.log(extractedMarkdown);
       setMarkdown(extractedMarkdown);
 
-      // 2. 追加: Gemini APIへMarkdownを送信して情報を特定
       const geminiRes = await fetch("/api/gemini", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -94,7 +152,6 @@ export default function Home() {
         setDocInfo(info);
       }
 
-      // 3. テーブル解析処理 (既存ロジック)
       const tables: Table[] = data?.analyzeResult?.tables ?? [];
       if (!tables.length) {
         setRows([]);
@@ -102,8 +159,15 @@ export default function Home() {
         return;
       }
 
-      const displayRows = await buildDisplayRows(tables[0], imageUrl);
-      setRows(displayRows);
+      const mainTable = tables.reduce((prev, current) => {
+        return (prev.cells.length > current.cells.length) ? prev : current;
+      });
+
+      const buildResult = await buildDisplayRows(mainTable, imageUrl);
+      setRows(buildResult.displayRows);
+      setTargetColumnIndices(buildResult.indices); 
+      setColumnHeaders(buildResult.headers); 
+      
     } catch (error) {
       console.error("Error during analysis:", error);
     } finally {
@@ -125,6 +189,27 @@ export default function Home() {
     );
   };
 
+  const toggleColumnResult = (colIndex: number) => {
+    setRows((prev) => {
+      const firstDataRow = prev.find((r) => r.results.some((val) => val !== null));
+      if (!firstDataRow) return prev;
+
+      const currentVal = firstDataRow.results[colIndex];
+      let nextVal: string | null = null;
+      if (currentVal === null || currentVal === "×") nextVal = "〇";
+      else if (currentVal === "〇") nextVal = "×";
+      else nextVal = null;
+
+      return prev.map((row) => {
+        const isHeaderRow = row.results.every((r) => r === null);
+        if (isHeaderRow) return row; 
+        const nextResults = [...row.results];
+        nextResults[colIndex] = nextVal;
+        return { ...row, results: nextResults };
+      });
+    });
+  };
+
   const toggleRowSelection = (rowIndex: number) => {
     setSelectedRows((prev) => {
       const newSet = new Set(prev);
@@ -135,9 +220,8 @@ export default function Home() {
   };
 
   const countMenuResults = () => {
-    const columnNames = targetColumnIndices.map((_, i) => columnHeaders[i]);
-    const menuResultIndices = columnNames
-      .map((name, resultIndex) => ({ name, resultIndex }))
+    const menuResultIndices = columnHeaders
+      .map((name, index) => ({ name, index }))
       .filter((x) => x.name !== "氏名" && x.name !== "施術実施");
 
     const counts: Record<string, number> = {};
@@ -150,26 +234,23 @@ export default function Home() {
       const shijitsuResult = row.results[shijitsuResultIndex];
       if (shijitsuResult !== "〇") return;
 
-      menuResultIndices.forEach(({ name, resultIndex }) => {
-        if (row.results[resultIndex] === "〇") {
+      menuResultIndices.forEach(({ name, index }) => {
+        if (row.results[index] === "〇") {
           counts[name]++;
         }
       });
     });
 
-    console.log("メニュー別カウント結果", counts);
     setMenuCounts(counts);
   };
 
-const onExportExcel = async () => {
+  const onExportExcel = async () => {
     if (!markdown) {
       alert("まだMarkdownが取得されていません");
       return;
     }
-    
     setLoading(true);
     try {
-      // 令和の年数を計算 (2026年は令和8年)
       let reiwaYearStr = "";
       if (docInfo?.year) {
         const yearNum = parseInt(docInfo.year);
@@ -178,7 +259,6 @@ const onExportExcel = async () => {
         }
       }
 
-      // APIへのペイロードを作成
       const payload = { 
         counts: menuCounts,
         facility: docInfo?.facilityName || "",
@@ -204,8 +284,6 @@ const onExportExcel = async () => {
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
-      
-      // ファイル名に施設名を含めると管理しやすくなります
       const dateStr = new Date().toISOString().slice(0, 10);
       const fileName = docInfo?.facilityName 
         ? `${docInfo.facilityName}_${dateStr}.xlsx` 
@@ -247,6 +325,24 @@ const onExportExcel = async () => {
           >
             {loading ? "解析中..." : "アップロード & 解析"}
           </button>
+          
+          <button 
+            onClick={addNewMenuColumn}
+            disabled={rows.length === 0}
+            style={{ padding: "10px 20px", backgroundColor: "#8b5cf6", color: "white", border: "none", borderRadius: "6px", cursor: "pointer", fontWeight: "600" }}
+          >
+            メニュー追加
+          </button>
+
+          {/* 新機能：人を追加ボタン */}
+          <button 
+            onClick={addNewPersonRow}
+            disabled={rows.length === 0}
+            style={{ padding: "10px 20px", backgroundColor: "#ec4899", color: "white", border: "none", borderRadius: "6px", cursor: "pointer", fontWeight: "600" }}
+          >
+            人を追加
+          </button>
+
           <button 
             onClick={countMenuResults}
             style={{ padding: "10px 20px", backgroundColor: "#059669", color: "white", border: "none", borderRadius: "6px", cursor: "pointer", fontWeight: "600" }}
@@ -261,7 +357,7 @@ const onExportExcel = async () => {
           </button>
         </div>
 
-        {/* 追加：Geminiの解析結果表示エリア */}
+        {/* --- docInfo, menuCountsの表示部分は省略（元のまま） --- */}
         {docInfo && (
           <div style={{ marginBottom: "24px", padding: "16px", backgroundColor: "#f0fdf4", borderRadius: "8px", border: "1px solid #bbf7d0", display: "flex", gap: "24px", color: "#166534" }}>
             <div><strong>施設名:</strong> {docInfo.facilityName}</div>
@@ -269,7 +365,6 @@ const onExportExcel = async () => {
           </div>
         )}
 
-        {/* 集計結果の表示 */}
         {Object.keys(menuCounts).length > 0 && (
           <div style={{ marginBottom: "24px", padding: "16px", backgroundColor: "#eff6ff", borderRadius: "8px", border: "1px solid #bfdbfe" }}>
             <h2 style={{ fontSize: "16px", fontWeight: "bold", marginBottom: "12px", color: "#1e40af" }}>【メニュー別集計 (施術実施のみ)】</h2>
@@ -284,21 +379,23 @@ const onExportExcel = async () => {
           </div>
         )}
 
-        {/* テーブル表示エリア */}
         <div style={{ overflowX: "auto", border: "1px solid #e5e7eb", borderRadius: "8px" }}>
-          {rows.map((row) => (
+          {rows.map((row, index) => (
             <RowView
               key={row.rowIndex}
               row={row}
               onToggle={toggleResult}
+              onHeaderToggle={toggleColumnResult} 
+              onHeaderDelete={removeMenuColumn}
+              onRowDelete={removePersonRow} // 【新規追加】
               onRowClick={toggleRowSelection}
               isSelected={selectedRows.has(row.rowIndex)}
+              isFirstRow={index === 0}
             />
           ))}
         </div>
       </div>
 
-      {/* 画像プレビューエリア */}
       {imageUrl && (
         <div style={{ backgroundColor: "white", padding: "24px", borderRadius: "12px", boxShadow: "0 1px 3px rgba(0,0,0,0.1)" }}>
           <h2 style={{ fontSize: "18px", fontWeight: "bold", marginBottom: "16px" }}>元画像プレビュー</h2>
@@ -308,32 +405,65 @@ const onExportExcel = async () => {
     </main>
   );
 }
-// --- Logic functions (Copied exactly) ---
-async function buildDisplayRows(table: Table, imageUrl: string): Promise<DisplayRow[]> {
+
+// --- Logic functions (変更なし) ---
+async function buildDisplayRows(table: Table, imageUrl: string): Promise<{ displayRows: DisplayRow[], indices: number[], headers: string[] }> {
+  // 元のbuildDisplayRows関数（変更なし）
+  const rowMap: Record<number, Record<number, string>> = {};
+  const targetColumnIndices: number[] = [];
+  const columnHeaders: string[] = [];
+  let nameRowIndex = 0;
+  let nameColumnIndex: number | undefined;
+  let tempColumnName: string | undefined = undefined;
+  let tempColumnIndex: number | undefined = undefined;
+  
   const filteredCellsGroupedByRow: Record<number, { rowIndex: number; columnIndex: number; polygon: number[]; result: string | null }[]> = {};
 
   for (const cell of table.cells) {
-    const content = cell.content?.trim();
-    if (!content) continue;
-    const match = TARGET_COLUMNS.find((t) => content.includes(t));
-    if (!match) continue;
-    if (match === "氏名" && nameColumnIndex === undefined) {
-      nameColumnIndex = cell.columnIndex;
+    const content = cell.content?.trim() || "";
+    if (content === "氏名") {
       nameRowIndex = cell.rowIndex;
+      nameColumnIndex = cell.columnIndex;
+      break; 
     }
+  }
+
+  if (nameRowIndex === undefined || nameColumnIndex === undefined) {
+    console.error("氏名列が見つかりませんでした");
+    return { displayRows: [], indices: [], headers: [] };
+  }
+
+  const sortedTargetColumns = [...TARGET_COLUMNS].sort((a, b) => b.length - a.length);
+
+  for (const cell of table.cells) {
+    if (cell.rowIndex > nameRowIndex + 1) continue;
+    const content = cell.content?.trim() || "";
+    if (!content || content === "備考") continue;
+    const match = sortedTargetColumns.find((t) => content.includes(t));
+    if (!match) continue;
+
+    if (match === "氏名" && !targetColumnIndices.includes(cell.columnIndex)) {
+      columnHeaders.push(match);
+      targetColumnIndices.push(cell.columnIndex);
+      continue;
+    }
+
     if (match.includes("施術実施")) {
       tempColumnName = match;
       tempColumnIndex = cell.columnIndex;
     } else {
-      if (!columnHeaders.includes(match)) {
+      if (!targetColumnIndices.includes(cell.columnIndex)) {
         columnHeaders.push(match);
         targetColumnIndices.push(cell.columnIndex);
       }
     }
   }
+
   if (tempColumnName && tempColumnIndex !== undefined) {
-    columnHeaders.push(tempColumnName);
-    targetColumnIndices.push(tempColumnIndex);
+    if (!targetColumnIndices.includes(tempColumnIndex)) {
+      columnHeaders.push(tempColumnName);
+      targetColumnIndices.push(tempColumnIndex);
+    }
   }
 
   const targetRowIndices = table.cells
@@ -432,7 +562,7 @@ async function buildDisplayRows(table: Table, imageUrl: string): Promise<Display
     if (yamadaRowIndex !== null) break;
   }
 
-  return Object.keys(rowMap)
+  const displayRows = Object.keys(rowMap)
     .map((r) => {
       const rowIndex = Number(r);
       const columns = targetColumnIndices.map((c) => rowMap[rowIndex]?.[c] ?? "");
@@ -450,10 +580,34 @@ async function buildDisplayRows(table: Table, imageUrl: string): Promise<Display
       return { rowIndex, columns, results };
     })
     .sort((a, b) => a.rowIndex - b.rowIndex);
+
+  return { 
+    displayRows, 
+    indices: targetColumnIndices, 
+    headers: columnHeaders 
+  };
 }
 
 // --- UI Components ---
-function RowView({ row, onToggle, onRowClick, isSelected }: { row: DisplayRow; onToggle: (rowIndex: number, colIndex: number) => void; onRowClick: (rowIndex: number) => void; isSelected: boolean; }) {
+function RowView({ 
+  row, 
+  onToggle, 
+  onHeaderToggle, 
+  onHeaderDelete,
+  onRowDelete, // 【新規追加】
+  onRowClick, 
+  isSelected,
+  isFirstRow
+}: { 
+  row: DisplayRow; 
+  onToggle: (rowIndex: number, colIndex: number) => void; 
+  onHeaderToggle: (colIndex: number) => void; 
+  onHeaderDelete: (colIndex: number) => void; 
+  onRowDelete: (rowIndex: number) => void; // 【新規追加】
+  onRowClick: (rowIndex: number) => void; 
+  isSelected: boolean; 
+  isFirstRow: boolean;
+}) {
   const isHeaderRow = row.results.every((r) => r === null);
 
   return (
@@ -462,7 +616,7 @@ function RowView({ row, onToggle, onRowClick, isSelected }: { row: DisplayRow; o
         display: "flex",
         minWidth: "max-content",
         borderBottom: "1px solid #e5e7eb",
-        backgroundColor: isHeaderRow ? "#f9fafb" : isSelected ? "#f3f4f6" : "transparent",
+        backgroundColor: isHeaderRow ? "#f3f4f6" : isSelected ? "#f3f4f6" : "transparent",
         transition: "background-color 0.2s",
         cursor: !isHeaderRow ? "pointer" : "default",
       }}
@@ -471,6 +625,7 @@ function RowView({ row, onToggle, onRowClick, isSelected }: { row: DisplayRow; o
       {row.columns.map((c, i) => {
         const result = row.results[i];
         const isName = i === 0;
+        const isActionableHeader = isFirstRow && !isName && c !== "施術実施";
         
         return (
           <div
@@ -482,18 +637,70 @@ function RowView({ row, onToggle, onRowClick, isSelected }: { row: DisplayRow; o
               fontSize: isHeaderRow ? "13px" : "14px",
               fontWeight: isHeaderRow ? "600" : "normal",
               color: isHeaderRow ? "#4b5563" : "#111827",
-              borderRight: "1px solid #f3f4f6",
+              borderRight: "1px solid #e5e7eb",
               display: "flex",
+              flexDirection: "column",
               alignItems: "center",
               justifyContent: "center",
+              cursor: isActionableHeader ? "pointer" : "inherit",
+              backgroundColor: isActionableHeader ? "#eff6ff" : "inherit",
+              position: "relative",
             }}
             onClick={(e) => {
               e.stopPropagation();
-              if (!isHeaderRow && !isName) onToggle(row.rowIndex, i);
+              if (isFirstRow && !isName) {
+                onHeaderToggle(i);
+              } else if (!isHeaderRow && !isName) {
+                onToggle(row.rowIndex, i);
+              }
             }}
           >
-            {isHeaderRow ? c : (
-              isName ? c : (
+            {isHeaderRow ? (
+              <>
+                {isActionableHeader && (
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onHeaderDelete(i);
+                    }}
+                    style={{
+                      position: "absolute", top: "2px", right: "2px", backgroundColor: "#fee2e2",
+                      color: "#ef4444", border: "none", borderRadius: "50%", width: "16px", height: "16px",
+                      fontSize: "10px", cursor: "pointer", display: "flex", alignItems: "center",
+                      justifyContent: "center", padding: 0
+                    }}
+                    title="列を削除"
+                  >
+                    ×
+                  </button>
+                )}
+                <div>{c}</div>
+                {isFirstRow && !isName && (
+                  <div style={{ fontSize: "10px", color: "#3b82f6", marginTop: "2px", fontWeight: "normal" }}>[一括切替]</div>
+                )}
+              </>
+            ) : (
+              isName ? (
+                <div style={{ position: "relative", width: "100%" }}>
+                  {/* 【新規実装】人の削除ボタン */}
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onRowDelete(row.rowIndex);
+                    }}
+                    style={{
+                      position: "absolute", left: "-6px", top: "-6px", backgroundColor: "#fecaca",
+                      color: "#dc2626", border: "none", borderRadius: "50%", width: "16px", height: "16px",
+                      fontSize: "10px", cursor: "pointer", display: "flex", alignItems: "center",
+                      justifyContent: "center", padding: 0, zIndex: 10
+                    }}
+                    title="この人を削除"
+                  >
+                    ×
+                  </button>
+                  {c}
+                </div>
+              ) : (
                 <span style={{ 
                   fontSize: "18px", 
                   fontWeight: "bold",
